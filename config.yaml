@@ -1,0 +1,24 @@
+# Bevakningsinställningar
+notify_only_on_change: true
+state_file: state.json
+headless: true
+
+notifier:
+  email_enabled: true
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  smtp_user: henrik.enkel@gmail.com
+  smtp_password_env: SMTP_PASSWORD
+  email_from: henrik.enkel@gmail.com
+  email_to: henrik.enkel@gmail.com
+
+watches:
+  - name: "Ny-Vy 20 augusti 20:15"
+    trip_type: one_way
+    origin: nynashamn
+    destination: visby
+    outbound_date: "2026-08-20"
+    departure_time: "20:15"
+    passengers:
+      adults: 1
+    vehicle: personbil
