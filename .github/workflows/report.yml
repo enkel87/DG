@@ -1,0 +1,36 @@
+name: Gotland statusrapport
+
+on:
+  schedule:
+    # 06:00 UTC = 08:00 svensk sommartid (07:00 vintertid)
+    - cron: "0 6 * * *"
+  # Gör att du kan trycka "Run workflow" manuellt för att testa mejlkedjan
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Hämta koden
+        uses: actions/checkout@v5
+
+      - name: Sätt upp Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installera Python-paket
+        run: pip install -r requirements.txt
+
+      - name: Installera Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Skicka statusrapport
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python watch.py --config config.yaml --report-email
