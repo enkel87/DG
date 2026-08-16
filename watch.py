@@ -1206,6 +1206,84 @@ def run_once(settings: Settings, debug_dir: Path | None,
     save_state(state_path, state)
 
 
+def report_email_command(settings: Settings, only_watch: str | None,
+                         log: logging.Logger) -> int:
+    """Run every watch and email a digest of what was found, regardless of
+    whether anything matched. Used as a heartbeat: proves the whole chain
+    (scrape -> parse -> SMTP -> inbox) is alive. Does NOT touch state.json,
+    so it never interferes with the normal change-notification logic."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sections: list[str] = []
+    any_failure = False
+
+    for watch in settings.watches:
+        if only_watch and watch.name != only_watch:
+            continue
+        log.info("=== Report: %s ===", watch.name)
+        header = (
+            f"── {watch.name} ──\n"
+            f"{PORTS[watch.origin]} → {PORTS[watch.destination]}\n"
+            f"Datum: {watch.outbound_date}"
+            + (f" / retur {watch.return_date}" if watch.return_date else "")
+            + f"\nResenärer: {watch.passengers.total()}"
+            f"\nFordon: {_human_vehicle(watch.vehicle)}\n"
+            f"Söker: {watch.departure_time or watch.departure_window or 'valfri avgång'}\n"
+        )
+        try:
+            deps_by_side = scrape(watch, settings, None, log)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Report scrape failed for %s: %s", watch.name, e)
+            any_failure = True
+            sections.append(header + f"\n⚠ FEL vid avläsning: {type(e).__name__}: {e}\n")
+            continue
+
+        lines = []
+        for side, label in (("outbound", "Utresa"), ("return", "Retur")):
+            deps = deps_by_side.get(side) or []
+            if not deps:
+                continue
+            lines.append(f"\n{label}:")
+            for d in deps:
+                status = ("LEDIG" if d.available
+                          else "Slutsåld" if d.available is False else "?")
+                prices = ", ".join(f"{k} {v}" for k, v in d.prices.items()) or "-"
+                marker = ""
+                if watch.departure_time and d.time == watch.departure_time:
+                    marker = "  ← din avgång"
+                lines.append(f"  {d.time} → {d.arrival_time or '?'}  "
+                             f"{status}  {prices}{marker}")
+        if not lines:
+            any_failure = True
+            lines.append("\n⚠ Inga avgångar kunde läsas av. "
+                         "Sidan kan ha ändrats.")
+
+        hits = [d for d in deps_by_side["outbound"]
+                if matches_criteria(d, watch.departure_time,
+                                    watch.departure_window)]
+        lines.append(f"\nTräffar just nu: {len(hits)}")
+        sections.append(header + "\n".join(lines) + "\n")
+
+    if not sections:
+        log.warning("No watches to report on")
+        return 1
+
+    status_word = "⚠ MED VARNING" if any_failure else "OK"
+    body = (
+        f"Statusrapport från gotland_watch\n"
+        f"Tidpunkt: {ts}\n"
+        f"Bevakningar: {len(sections)}\n"
+        f"Avläsning: {status_word}\n\n"
+        + "\n".join(sections)
+        + "\n---\n"
+        "Detta mejl bekräftar att bevakningen lever och att mejlkedjan "
+        "fungerar. Du får separata mejl när platser släpps eller tar slut."
+    )
+    notify(settings.notifier, f"[Gotland] Statusrapport {ts} — {status_word}",
+           body, log)
+    log.info("Status report sent:\n%s", body)
+    return 1 if any_failure else 0
+
+
 def inspect_home(settings: Settings, log: logging.Logger) -> None:
     out_dir = Path("debug")
     out_dir.mkdir(exist_ok=True)
@@ -1551,6 +1629,9 @@ def main() -> int:
                         help="Send a test email to verify SMTP setup, then exit")
     parser.add_argument("--status", action="store_true",
                         help="Print a status report (is the watcher healthy?), then exit")
+    parser.add_argument("--report-email", action="store_true",
+                        help="Run every watch and email a digest of what was "
+                             "found (heartbeat), then exit. Does not touch state.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -1575,6 +1656,8 @@ def main() -> int:
     if args.inspect:
         inspect_home(settings, log)
         return 0
+    if args.report_email:
+        return report_email_command(settings, args.watch, log)
     if args.daemon:
         while True:
             try:
