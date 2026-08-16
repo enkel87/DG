@@ -7,10 +7,11 @@ notifier:
   email_enabled: true
   smtp_host: smtp.gmail.com
   smtp_port: 587
-  smtp_user: henrik.enkel@gmail.com
+  # Adresser läses från miljövariabler (GitHub Secrets):
+  #   SMTP_USER, EMAIL_TO, SMTP_PASSWORD
   smtp_password_env: SMTP_PASSWORD
-  email_from: henrik.enkel@gmail.com
-  email_to: henrik.enkel@gmail.com
+  smtp_user_env: SMTP_USER
+  email_to_env: EMAIL_TO
 
 watches:
   - name: "Ny-Vy 20 augusti 20:15"
