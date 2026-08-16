@@ -151,12 +151,30 @@ class NotifierConfig:
     smtp_password_env: str = "SMTP_PASSWORD"
     email_from: str = ""
     email_to: str = ""
+    # Env-var names used when the address fields above are left empty.
+    # This lets the config file stay free of personal data in a public repo.
+    smtp_user_env: str = "SMTP_USER"
+    email_from_env: str = "EMAIL_FROM"
+    email_to_env: str = "EMAIL_TO"
     pushover_enabled: bool = False
     pushover_token_env: str = "PUSHOVER_TOKEN"
     pushover_user_env: str = "PUSHOVER_USER"
     telegram_enabled: bool = False
     telegram_token_env: str = "TELEGRAM_TOKEN"
     telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
+
+    def resolved_smtp_user(self) -> str:
+        return self.smtp_user or os.environ.get(self.smtp_user_env, "")
+
+    def resolved_email_from(self) -> str:
+        return (self.email_from
+                or os.environ.get(self.email_from_env, "")
+                or self.resolved_smtp_user())
+
+    def resolved_email_to(self) -> str:
+        return (self.email_to
+                or os.environ.get(self.email_to_env, "")
+                or self.resolved_smtp_user())
 
 
 @dataclass
@@ -966,13 +984,23 @@ def _send_email(cfg: NotifierConfig, subject: str, body: str,
     if not pw:
         log.error("SMTP password env var %s not set", cfg.smtp_password_env)
         return
+    smtp_user = cfg.resolved_smtp_user()
+    email_to = cfg.resolved_email_to()
+    if not smtp_user:
+        log.error("No SMTP user: set smtp_user in config or env %s",
+                  cfg.smtp_user_env)
+        return
+    if not email_to:
+        log.error("No recipient: set email_to in config or env %s",
+                  cfg.email_to_env)
+        return
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
-    msg["From"] = cfg.email_from or cfg.smtp_user
-    msg["To"] = cfg.email_to
+    msg["From"] = cfg.resolved_email_from()
+    msg["To"] = email_to
     with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port) as s:
         s.starttls()
-        s.login(cfg.smtp_user, pw)
+        s.login(smtp_user, pw)
         s.send_message(msg)
     log.info("Email sent: %s", subject)
 
@@ -1289,7 +1317,13 @@ def validate_config_command(path: Path) -> int:
     any_notifier = False
     if n.email_enabled:
         any_notifier = True
-        print(f"  ✓ Email aktiverad: {n.smtp_user} → {n.email_to}")
+        _su = n.resolved_smtp_user() or "(ej satt)"
+        _to = n.resolved_email_to() or "(ej satt)"
+        print(f"  ✓ Email aktiverad: {_su} → {_to}")
+        if not n.smtp_user and not os.environ.get(n.smtp_user_env):
+            print(f"    ⚠ Varken smtp_user i config eller env {n.smtp_user_env} satt")
+        if not n.email_to and not os.environ.get(n.email_to_env):
+            print(f"    ⚠ Varken email_to i config eller env {n.email_to_env} satt")
         if not os.environ.get(n.smtp_password_env):
             print(f"    ⚠ Miljövariabeln {n.smtp_password_env} är inte satt just nu")
             print(f"      (måste sättas vid körning, t.ex. i launchd-plisten)")
@@ -1332,13 +1366,13 @@ def test_email_command(path: Path) -> int:
     body = (
         "Detta är ett testmejl från gotland_watch.\n\n"
         f"Skickat: {ts}\n"
-        f"Från: {n.smtp_user}\n"
-        f"Till: {n.email_to}\n\n"
+        f"Från: {n.resolved_smtp_user()}\n"
+        f"Till: {n.resolved_email_to()}\n\n"
         "Om du ser detta är Gmail-uppsättningen korrekt."
     )
     try:
         _send_email(n, subject, body, log)
-        print(f"  ✓ Testmejl skickat till {n.email_to}. Kolla inkorgen.")
+        print(f"  ✓ Testmejl skickat till {n.resolved_email_to()}. Kolla inkorgen.")
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"  ✗ Misslyckades skicka mejl: {type(e).__name__}: {e}")
