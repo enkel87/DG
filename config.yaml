@@ -1,25 +1,34 @@
-# Bevakningsinställningar
+# ── Bevakningsinställningar ────────────────────────────────────────────
+# Hur ofta loopen kollar, i sekunder. En avläsning tar ~23 s, och scriptet
+# sover bara återstoden av intervallet, så 60 ger en kontroll per minut.
+interval_seconds: 60
+
+# Mejla bara vid förändring (släppt / fullbokat igen), aldrig upprepningar.
 notify_only_on_change: true
+
 state_file: state.json
 headless: true
 
+# ── Notifiering ────────────────────────────────────────────────────────
+# Adresser och lösenord ligger i GitHub Secrets, inte här, så att repot
+# kan vara publikt utan att exponera personuppgifter.
 notifier:
   email_enabled: true
   smtp_host: smtp.gmail.com
   smtp_port: 587
-  # Adresser läses från miljövariabler (GitHub Secrets):
-  #   SMTP_USER, EMAIL_TO, SMTP_PASSWORD
   smtp_password_env: SMTP_PASSWORD
   smtp_user_env: SMTP_USER
   email_to_env: EMAIL_TO
 
+# ── Bevakningar ────────────────────────────────────────────────────────
 watches:
   - name: "Ny-Vy 20 augusti 20:15"
     trip_type: one_way
-    origin: nynashamn
-    destination: visby
+    origin: nynashamn          # nynashamn | oskarshamn | visby
+    destination: visby         # nynashamn | oskarshamn | visby
     outbound_date: "2026-08-20"
-    departure_time: "20:15"
+    departure_time: "20:15"    # exakt tid, eller använd departure_window
+    # departure_window: "18:00-22:00"
     passengers:
       adults: 1
-    vehicle: personbil
+    vehicle: personbil         # personbil = vanlig bil under 2,25 m
