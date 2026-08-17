@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+debug/
+watch.err
+watch.log
+wrapper.err
+gw_wrapper.sh
