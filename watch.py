@@ -1629,6 +1629,9 @@ def main() -> int:
                         help="Send a test email to verify SMTP setup, then exit")
     parser.add_argument("--status", action="store_true",
                         help="Print a status report (is the watcher healthy?), then exit")
+    parser.add_argument("--max-runtime", type=int, default=0,
+                        help="With --daemon: exit cleanly after N seconds. "
+                             "Use in CI so the job finishes before its timeout.")
     parser.add_argument("--report-email", action="store_true",
                         help="Run every watch and email a digest of what was "
                              "found (heartbeat), then exit. Does not touch state.")
@@ -1659,13 +1662,34 @@ def main() -> int:
     if args.report_email:
         return report_email_command(settings, args.watch, log)
     if args.daemon:
+        started = time.monotonic()
+        cycle = 0
         while True:
+            cycle += 1
+            cycle_start = time.monotonic()
             try:
                 run_once(settings, debug_dir, args.watch, log)
             except Exception as e:  # noqa: BLE001
                 log.exception("Cycle failed: %s", e)
-            log.info("Sleeping %d s", settings.interval_seconds)
-            time.sleep(settings.interval_seconds)
+            elapsed_total = time.monotonic() - started
+            if args.max_runtime and elapsed_total >= args.max_runtime:
+                log.info("Reached max runtime (%ds) after %d cycles — exiting",
+                         args.max_runtime, cycle)
+                return 0
+            # Sleep the remainder of the interval, not the full interval on
+            # top of the scrape time. Keeps the real polling rate close to
+            # interval_seconds rather than interval + ~25s.
+            sleep_for = max(5, settings.interval_seconds
+                            - (time.monotonic() - cycle_start))
+            if args.max_runtime:
+                remaining = args.max_runtime - (time.monotonic() - started)
+                if remaining <= 5:
+                    log.info("Not enough time for another cycle — exiting "
+                             "after %d cycles", cycle)
+                    return 0
+                sleep_for = min(sleep_for, remaining)
+            log.info("Cycle %d done, sleeping %.0f s", cycle, sleep_for)
+            time.sleep(sleep_for)
     else:
         run_once(settings, debug_dir, args.watch, log)
     return 0
