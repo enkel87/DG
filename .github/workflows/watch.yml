@@ -1,0 +1,68 @@
+name: Gotland watch
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: gotland-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+
+    steps:
+      - name: Hämta koden
+        uses: actions/checkout@v5
+
+      - name: Sätt upp Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Installera Python-paket
+        run: pip install -r requirements.txt
+
+      - name: Installera Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Bevaka i 5 h 50 min, kontroll varje minut
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          python watch.py \
+            --config config.yaml \
+            --daemon \
+            --max-runtime 21000
+
+      - name: Spara state.json till repot
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Uppdatera state [skip ci]"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push
+            echo "state.json sparad"
+          else
+            echo "Ingen ändring i state.json"
+          fi
+
+      - name: Starta nästa körning
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run watch.yml --ref "${GITHUB_REF_NAME}"
+          echo "Nästa körning köad"
